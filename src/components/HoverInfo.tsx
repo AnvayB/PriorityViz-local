@@ -1,0 +1,603 @@
+import React, { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { ChartSlice, Section } from '@/types/priorities';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Calendar, CheckCircle, Clock, Edit, Trash2, Palette, X, AlertTriangle, Check, ChevronDown, ArrowRight } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeContext';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
+
+interface HoverInfoProps {
+  slice: ChartSlice | null;
+  onEdit?: (type: 'section' | 'subsection' | 'task', id: string, newTitle: string, newDueDate?: string, newDescription?: string) => void;
+  onDelete?: (type: 'section' | 'subsection' | 'task', sectionId: string, subsectionId?: string, taskId?: string) => void;
+  onColorChange?: (sectionId: string, color: string) => void;
+  onPriorityChange?: (type: 'section' | 'subsection' | 'task', id: string, highPriority: boolean) => void;
+  onComplete?: (type: 'section' | 'subsection' | 'task', id: string) => void;
+  onClose?: () => void;
+  isPinned?: boolean;
+  sections?: Section[];
+  onMoveSubsection?: (subsectionId: string, fromSectionId: string, toSectionId: string) => void;
+  onMoveTask?: (taskId: string, fromSubsectionId: string, toSubsectionId: string) => void;
+  onTaskClick?: (taskId: string, sectionId: string, subsectionId: string) => void;
+  onAnyDialogChange?: (open: boolean) => void;
+}
+
+const HoverInfo: React.FC<HoverInfoProps> = ({
+  slice,
+  onEdit,
+  onDelete,
+  onColorChange,
+  onPriorityChange,
+  onComplete,
+  onClose,
+  isPinned,
+  sections,
+  onMoveSubsection,
+  onMoveTask,
+  onTaskClick,
+  onAnyDialogChange,
+}) => {
+  const { theme } = useTheme();
+  const [editTitle, setEditTitle] = useState('');
+  const [editDueDate, setEditDueDate] = useState<Date | undefined>(undefined);
+  const [editDescription, setEditDescription] = useState('');
+  const [selectedColor, setSelectedColor] = useState('#3b82f6');
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isColorOpen, setIsColorOpen] = useState(false);
+  const [isTasksOpen, setIsTasksOpen] = useState(false);
+  const [isMoveOpen, setIsMoveOpen] = useState(false);
+  const [moveTargetSectionId, setMoveTargetSectionId] = useState('');
+  const [moveTargetSubsectionId, setMoveTargetSubsectionId] = useState('');
+  const [isDueDatePopoverOpen, setIsDueDatePopoverOpen] = useState(false);
+
+  const dialogSetter = (setter: (v: boolean) => void) => (open: boolean) => {
+    setter(open);
+    onAnyDialogChange?.(open);
+  };
+
+  const colors = [
+    '#0ea5e9', '#06b6d4', '#6366f1', '#8b5cf6',
+    '#10b981', '#14b8a6', '#22c55e', '#84cc16',
+    '#eab308', '#f59e0b', '#fb923c', '#f97316',
+    '#ef4444', '#cc6e6e', '#ec4899', '#a855f7',
+  ];
+
+  React.useEffect(() => {
+    setIsTasksOpen(false);
+    setIsMoveOpen(false);
+    setMoveTargetSectionId('');
+    setMoveTargetSubsectionId('');
+  }, [slice]);
+
+  const handleEdit = () => {
+    if (!slice || !onEdit) return;
+    let currentTitle = '';
+    let currentDueDate: Date | undefined = undefined;
+    let currentDescription = '';
+    if (slice.level === 'section') currentTitle = slice.section.title;
+    else if (slice.level === 'subsection' && slice.subsection) currentTitle = slice.subsection.title;
+    else if (slice.level === 'task' && slice.task) {
+      currentTitle = slice.task.title;
+      currentDescription = slice.task.description || '';
+      if (slice.task.dueDate) {
+        const [year, month, day] = slice.task.dueDate.split('-').map(Number);
+        currentDueDate = new Date(year, month - 1, day);
+      }
+    }
+    setEditTitle(currentTitle);
+    setEditDueDate(currentDueDate);
+    setEditDescription(currentDescription);
+    setIsEditOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!slice || !onEdit) return;
+    let id = '';
+    if (slice.level === 'section') id = slice.section.id;
+    else if (slice.level === 'subsection' && slice.subsection) id = slice.subsection.id;
+    else if (slice.level === 'task' && slice.task) id = slice.task.id;
+    const formattedDate = editDueDate ? format(editDueDate, 'yyyy-MM-dd') : undefined;
+    const description = slice.level === 'task' ? editDescription : undefined;
+    onEdit(slice.level, id, editTitle, formattedDate, description);
+    setIsEditOpen(false);
+  };
+
+  const handleDelete = () => {
+    if (!slice || !onDelete) return;
+    onDelete(slice.level, slice.section.id, slice.subsection?.id, slice.task?.id);
+  };
+
+  const handleColorChange = (color: string) => {
+    if (!slice || !onColorChange) return;
+    onColorChange(slice.section.id, color);
+    setIsColorOpen(false);
+  };
+
+  const handleMove = () => {
+    if (!slice) return;
+    if (slice.level === 'subsection' && slice.subsection && onMoveSubsection) {
+      onMoveSubsection(slice.subsection.id, slice.section.id, moveTargetSectionId);
+    } else if (slice.level === 'task' && slice.task && slice.subsection && onMoveTask) {
+      onMoveTask(slice.task.id, slice.subsection.id, moveTargetSubsectionId);
+    }
+    setIsMoveOpen(false);
+    setMoveTargetSectionId('');
+    setMoveTargetSubsectionId('');
+  };
+
+  const handlePriorityChange = (checked: boolean) => {
+    if (!slice || !onPriorityChange) return;
+    let id = '';
+    if (slice.level === 'section') id = slice.section.id;
+    else if (slice.level === 'subsection' && slice.subsection) id = slice.subsection.id;
+    else if (slice.level === 'task' && slice.task) id = slice.task.id;
+    onPriorityChange(slice.level, id, checked);
+  };
+
+  const handleComplete = () => {
+    if (!slice || !onComplete) return;
+    let id = '';
+    if (slice.level === 'section') id = slice.section.id;
+    else if (slice.level === 'subsection' && slice.subsection) id = slice.subsection.id;
+    else if (slice.level === 'task' && slice.task) id = slice.task.id;
+    onComplete(slice.level, id);
+  };
+
+  const getCurrentPriority = () => {
+    if (!slice) return false;
+    if (slice.level === 'section') return slice.section.high_priority || false;
+    if (slice.level === 'subsection') return slice.subsection?.high_priority || false;
+    if (slice.level === 'task') return slice.task?.high_priority || false;
+    return false;
+  };
+
+  const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
+    const [year, month, day] = dateString.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return 'No due date';
+    return parseLocalDate(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const isOverdue = (dateString: string) => {
+    if (!dateString) return false;
+    const dueDate = parseLocalDate(dateString);
+    dueDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return dueDate < today;
+  };
+
+  const getDaysUntilDue = (dateString: string) => {
+    if (!dateString) return Infinity;
+    const dueDate = parseLocalDate(dateString);
+    dueDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.round((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  if (!slice) {
+    return (
+      <Card className="w-full max-w-md h-64 bg-card/30 backdrop-blur-sm border-border/30">
+        <CardContent className="flex items-center justify-center h-full">
+          <div className="text-muted-foreground text-center space-y-1">
+            {isPinned ? (
+              <p>
+                <span className="sm:hidden">Tap on a pie chart section</span>
+                <span className="hidden sm:inline">Click on a pie chart section</span>
+                {' to pin details here'}
+              </p>
+            ) : (
+              <>
+                <p className="hidden sm:block">Hover over the pie chart to see details</p>
+                <p className="hidden sm:block text-s">Click to select a slice</p>
+                <p className="sm:hidden">Tap on the pie chart to see details</p>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      className={`w-full max-w-md bg-card/50 backdrop-blur-sm border-2 animate-scale-in ${isPinned ? 'ring-2 ring-primary/20' : ''}`}
+      style={{
+        borderColor: isPinned ? slice.color : 'hsl(var(--border))',
+        borderRadius: 'var(--radius)'
+      }}
+    >
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg text-primary">
+            {slice.level === 'section' && slice.section.title}
+            {slice.level === 'subsection' && slice.subsection?.title}
+            {slice.level === 'task' && slice.task?.title}
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={slice.level === 'section' ? 'default' : slice.level === 'subsection' ? 'secondary' : 'outline'}
+              className="capitalize"
+            >
+              {slice.level}
+            </Badge>
+            {isPinned && onClose && (
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mt-2 flex-nowrap">
+          <Button variant="outline" size="sm" onClick={handleEdit} className="border-gray-400 dark:border-border">
+            <Edit className="w-3 h-3 mr-1" />
+            Edit
+          </Button>
+          <Dialog open={isEditOpen} onOpenChange={dialogSetter(setIsEditOpen)}>
+            <DialogContent className="w-[calc(100%-2rem)] max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit {slice.level}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Title</label>
+                  <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Enter title" />
+                </div>
+                {slice.level === 'task' && (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium flex items-center gap-2">
+                        <Calendar className="w-4 h-4" />
+                        Due Date
+                      </label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !editDueDate && "text-muted-foreground")}>
+                            <Calendar className="mr-2 h-4 w-4" />
+                            {editDueDate ? format(editDueDate, "PPP") : <span>Pick a date</span>}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                          <CalendarComponent mode="single" selected={editDueDate} onSelect={setEditDueDate} initialFocus />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Description</label>
+                      <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Enter task description (optional)" className="min-h-[100px]" />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+                <Button onClick={handleSaveEdit}>Save</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {(slice.level === 'subsection' || slice.level === 'task') && (
+            <Dialog open={isMoveOpen} onOpenChange={(open) => {
+              setIsMoveOpen(open);
+              onAnyDialogChange?.(open);
+              if (!open) { setMoveTargetSectionId(''); setMoveTargetSubsectionId(''); }
+            }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="border-gray-400 dark:border-border">
+                  <ArrowRight className="w-3 h-3 mr-1" />
+                  Move
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="w-[calc(100%-2rem)] max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Move {slice.level === 'subsection' ? 'Subsection' : 'Task'}</DialogTitle>
+                </DialogHeader>
+                {slice.level === 'subsection' ? (() => {
+                  const otherSections = (sections || []).filter(s => s.id !== slice.section.id);
+                  return otherSections.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">No other sections available to move to.</p>
+                  ) : (
+                    <div className="space-y-4 mt-2">
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium">Target Section</label>
+                        <Select value={moveTargetSectionId} onValueChange={setMoveTargetSectionId}>
+                          <SelectTrigger><SelectValue placeholder="Select a section" /></SelectTrigger>
+                          <SelectContent>
+                            {otherSections.map(s => <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setIsMoveOpen(false)}>Cancel</Button>
+                        <Button onClick={handleMove} disabled={!moveTargetSectionId}>Move</Button>
+                      </div>
+                    </div>
+                  );
+                })() : (() => {
+                  const allSections = sections || [];
+                  const targetSection = allSections.find(s => s.id === moveTargetSectionId);
+                  const availableSubsections = (targetSection?.subsections || []).filter(sub => sub.id !== slice.subsection?.id);
+                  const hasAnyTarget = allSections.some(s => s.subsections.some(sub => sub.id !== slice.subsection?.id));
+                  return !hasAnyTarget ? (
+                    <p className="text-sm text-muted-foreground py-2">No other subsections available to move to.</p>
+                  ) : (
+                    <div className="space-y-4 mt-2">
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium">Target Section</label>
+                        <Select value={moveTargetSectionId} onValueChange={(val) => { setMoveTargetSectionId(val); setMoveTargetSubsectionId(''); }}>
+                          <SelectTrigger><SelectValue placeholder="Select a section" /></SelectTrigger>
+                          <SelectContent>
+                            {allSections.filter(s => s.subsections.some(sub => sub.id !== slice.subsection?.id)).map(s => <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {moveTargetSectionId && (
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Target Subsection</label>
+                          <Select value={moveTargetSubsectionId} onValueChange={setMoveTargetSubsectionId}>
+                            <SelectTrigger><SelectValue placeholder="Select a subsection" /></SelectTrigger>
+                            <SelectContent>
+                              {availableSubsections.map(sub => <SelectItem key={sub.id} value={sub.id}>{sub.title}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setIsMoveOpen(false)}>Cancel</Button>
+                        <Button onClick={handleMove} disabled={!moveTargetSubsectionId}>Move</Button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </DialogContent>
+            </Dialog>
+          )}
+
+          {slice.level === 'section' && (
+            <Dialog open={isColorOpen} onOpenChange={dialogSetter(setIsColorOpen)}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="border-gray-400 dark:border-border">
+                  <Palette className="w-3 h-3 mr-1" />
+                  Color
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="w-[calc(100%-2rem)] max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Choose Section Color</DialogTitle>
+                </DialogHeader>
+                <div className="grid grid-cols-4 gap-3 p-4">
+                  {colors.map((color) => (
+                    <button
+                      key={color}
+                      className="w-12 h-12 rounded-lg border-2 border-black dark:border-white hover:opacity-80 transition-colors cursor-pointer"
+                      style={{ backgroundColor: color }}
+                      onClick={() => handleColorChange(color)}
+                    />
+                  ))}
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+
+          <Button variant="outline" size="sm" onClick={handleComplete} className="border-gray-400 dark:border-border">
+            <Check className="w-3 h-3 mr-1" />
+            {slice.level === 'task' ? 'Complete' : 'Delete All'}
+          </Button>
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" className="px-2 border-gray-400 dark:border-border" title="Delete">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete this {slice.level} and all its contents. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel className="rounded-md">Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete} className="rounded-md">Delete</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-2">
+        {slice.level === 'section' && (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              {slice.section.subsections.length} subsection{slice.section.subsections.length !== 1 ? 's' : ''}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {slice.section.subsections.reduce((total, sub) => total + sub.tasks.filter(t => !t.completed).length, 0)} active task{slice.section.subsections.reduce((total, sub) => total + sub.tasks.filter(t => !t.completed).length, 0) !== 1 ? 's' : ''}
+            </p>
+          </div>
+        )}
+
+        {slice.level === 'subsection' && slice.subsection && (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Parent: <span className="text-foreground font-medium">{slice.section.title}</span>
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {slice.subsection.tasks.filter(t => !t.completed).length} active task{slice.subsection.tasks.filter(t => !t.completed).length !== 1 ? 's' : ''}
+            </p>
+            {slice.subsection.tasks.filter(t => !t.completed).length > 0 && (
+              <Collapsible open={isTasksOpen} onOpenChange={setIsTasksOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="outline" size="sm" className="w-full justify-between mt-2 border-gray-400 dark:border-border">
+                    <span className="text-xs">View Tasks</span>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${isTasksOpen ? 'rotate-180' : ''}`} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-1 mt-2">
+                  {slice.subsection.tasks.filter(t => !t.completed).map((task) => {
+                    const daysUntil = getDaysUntilDue(task.dueDate);
+                    const overdue = isOverdue(task.dueDate);
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex items-center justify-between text-xs p-2 bg-muted/50 rounded-md cursor-pointer hover:bg-muted transition-colors"
+                        onClick={() => onTaskClick?.(task.id, slice.section.id, slice.subsection!.id)}
+                      >
+                        <span className="truncate flex-1">{task.title}</span>
+                        {daysUntil !== Infinity && (
+                          <Badge variant={overdue ? 'destructive' : daysUntil <= 3 ? 'secondary' : 'outline'} className="ml-2 text-xs">
+                            {overdue ? 'Overdue' : daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil}d`}
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+          </div>
+        )}
+
+        {slice.level === 'task' && slice.task && (
+          <div className="space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-muted-foreground">
+                  <span className="text-foreground font-medium">{slice.section.title}</span>
+                  <span className="mx-1.5 text-muted-foreground/50">→</span>
+                  <span className="text-foreground font-medium">{slice.subsection?.title}</span>
+                </p>
+              </div>
+
+              {slice.task.description && (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="shrink-0 border-gray-400 dark:border-border">
+                      View Description
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="w-[calc(100%-2rem)] max-w-lg flex flex-col" style={{ maxHeight: '80vh' }}>
+                    <DialogHeader className="shrink-0">
+                      <DialogTitle>Task Description</DialogTitle>
+                    </DialogHeader>
+                    <div className="p-4 bg-muted/30 rounded-lg overflow-y-auto min-h-0 resize-y" style={{ maxHeight: '60vh' }}>
+                      <p className="text-sm whitespace-pre-wrap break-words">{
+                        slice.task.description.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                          /^https?:\/\//.test(part)
+                            ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline break-all">{part}</a>
+                            : part
+                        )
+                      }</p>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </div>
+
+            {slice.task.dueDate && (
+              <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg">
+                <Popover open={isDueDatePopoverOpen} onOpenChange={(open) => {
+                  if (open && slice.task?.dueDate) {
+                    const [year, month, day] = slice.task.dueDate.split('-').map(Number);
+                    setEditDueDate(new Date(year, month - 1, day));
+                  }
+                  setIsDueDatePopoverOpen(open);
+                }}>
+                  <PopoverTrigger asChild>
+                    <button className="flex items-center gap-2 flex-1 text-left hover:opacity-70 transition-opacity cursor-pointer">
+                      <Calendar className="w-4 h-4 text-primary" />
+                      <div>
+                        <p className="text-sm font-medium">Due Date</p>
+                        <p className="text-xs text-muted-foreground">{formatDate(slice.task.dueDate)}</p>
+                      </div>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarComponent
+                      mode="single"
+                      selected={editDueDate}
+                      onSelect={(date) => {
+                        setEditDueDate(date);
+                        if (date && onEdit && slice.task) {
+                          onEdit('task', slice.task.id, slice.task.title, format(date, 'yyyy-MM-dd'), slice.task.description);
+                        }
+                        setIsDueDatePopoverOpen(false);
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const daysUntil = getDaysUntilDue(slice.task.dueDate);
+                    const overdue = isOverdue(slice.task.dueDate);
+                    return (
+                      <Badge variant={overdue ? 'destructive' : daysUntil <= 3 ? 'secondary' : 'outline'} className="flex items-center gap-1">
+                        {overdue ? <><Clock className="w-3 h-3" />Overdue</> : daysUntil === 0 ? <><CheckCircle className="w-3 h-3" />Today</> : daysUntil === 1 ? <><Clock className="w-3 h-3" />Tomorrow</> : <><Clock className="w-3 h-3" />{`${daysUntil} days`}</>}
+                      </Badge>
+                    );
+                  })()}
+                  <Button
+                    variant="ghost" size="sm"
+                    className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => { if (onEdit && slice.task) onEdit('task', slice.task.id, slice.task.title, '', slice.task.description); }}
+                    title="Remove due date"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+
+        <div className="space-y-2 pt-2 border-t border-border/50">
+          <div className="flex items-center space-x-2 flex-wrap gap-2">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="high-priority"
+                checked={getCurrentPriority()}
+                onCheckedChange={handlePriorityChange}
+              />
+              <label htmlFor="high-priority" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-2">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertTriangle className="w-4 h-4 text-red-500 cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>This {slice.level} will display with a {theme === 'dark' ? 'white' : 'black'} border in the chart</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                High Priority
+              </label>
+            </div>
+
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default HoverInfo;

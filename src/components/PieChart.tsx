@@ -1,0 +1,377 @@
+import React, { useState, useMemo } from 'react';
+import { Section, Subsection, Task, ChartSlice } from '@/types/priorities';
+
+interface PieChartProps {
+  sections: Section[];
+  onHover?: (slice: ChartSlice | null) => void;
+  onSliceClick?: (slice: ChartSlice) => void;
+  showOverdueArcs?: boolean;
+}
+
+const CHART_COLORS = [
+  'hsl(var(--chart-1))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-5))',
+  'hsl(var(--chart-6))',
+  'hsl(var(--chart-7))',
+  'hsl(var(--chart-8))',
+];
+
+const isOverdue = (dateString: string) => {
+  if (!dateString) return false;
+  const d = new Date(dateString + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d < today;
+};
+
+const PieChart: React.FC<PieChartProps> = ({ sections, onHover, onSliceClick, showOverdueArcs = false }) => {
+  const [hoveredSlice, setHoveredSlice] = useState<ChartSlice | null>(null);
+
+  const chartData = useMemo(() => {
+    const slices: ChartSlice[] = [];
+    
+    console.log('[PieChart] Rendering with sections:', sections.length);
+    console.log('[PieChart] Sections:', sections.map(s => ({
+      title: s.title,
+      color: s.color,
+      subsections: s.subsections?.length || 0
+    })));
+    
+    if (sections.length === 0) {
+      console.log('[PieChart] No sections, returning empty array');
+      return [];
+    }
+
+    let currentAngle = 0;
+    const baseRadius = 102;
+    const subsectionRadius = 181;
+    const taskRadius = 260;
+    
+    // Each section gets equal portion of 360 degrees
+    const sectionAngle = 360 / sections.length;
+
+    sections.forEach((section, sectionIndex) => {
+      const sectionColor = section.color || CHART_COLORS[sectionIndex % CHART_COLORS.length];
+      const sectionStartAngle = currentAngle;
+      const sectionEndAngle = currentAngle + sectionAngle;
+
+      // Add section slice
+      slices.push({
+        section,
+        startAngle: sectionStartAngle,
+        endAngle: sectionEndAngle,
+        radius: baseRadius,
+        level: 'section',
+        color: sectionColor,
+      });
+
+      // Calculate subsection angles within this section
+      const subsectionCount = Math.max(section.subsections.length, 1);
+      const subsectionAngleSize = sectionAngle / subsectionCount;
+      let subsectionCurrentAngle = sectionStartAngle;
+
+      if (section.subsections.length > 0) {
+        section.subsections.forEach((subsection, subIndex) => {
+          const subsectionStartAngle = subsectionCurrentAngle;
+          const subsectionEndAngle = subsectionCurrentAngle + subsectionAngleSize;
+          const subsectionColor = sectionColor.replace(')', ', 0.7)').replace('hsl(', 'hsla(');
+
+          slices.push({
+            section,
+            subsection,
+            startAngle: subsectionStartAngle,
+            endAngle: subsectionEndAngle,
+            radius: subsectionRadius,
+            level: 'subsection',
+            color: subsectionColor,
+          });
+
+          // Calculate task angles within this subsection
+          const taskCount = Math.max(subsection.tasks.length, 1);
+          const taskAngleSize = subsectionAngleSize / taskCount;
+          let taskCurrentAngle = subsectionStartAngle;
+
+          if (subsection.tasks.length > 0) {
+            subsection.tasks.forEach((task, taskIndex) => {
+              const taskStartAngle = taskCurrentAngle;
+              const taskEndAngle = taskCurrentAngle + taskAngleSize;
+              const taskColor = subsectionColor.replace('0.7', '0.5');
+
+              slices.push({
+                section,
+                subsection,
+                task,
+                startAngle: taskStartAngle,
+                endAngle: taskEndAngle,
+                radius: taskRadius,
+                level: 'task',
+                color: taskColor,
+              });
+
+              taskCurrentAngle += taskAngleSize;
+            });
+          }
+
+          subsectionCurrentAngle += subsectionAngleSize;
+        });
+      }
+
+      currentAngle += sectionAngle;
+    });
+
+    return slices;
+  }, [sections]);
+
+  const overdueData = useMemo(() => {
+    const map: Record<string, { total: number; overdue: number }> = {};
+    for (const section of sections) {
+      let total = 0, overdue = 0;
+      for (const sub of section.subsections) {
+        for (const task of sub.tasks) {
+          total++;
+          if (isOverdue(task.dueDate)) overdue++;
+        }
+      }
+      map[section.id] = { total, overdue };
+    }
+    return map;
+  }, [sections]);
+
+  // Calculate dynamic dimensions based on content
+  const chartSize = 650;
+  const centerPoint = chartSize / 2;
+
+  const createPath = (startAngle: number, endAngle: number, innerRadius: number, outerRadius: number, centerX: number, centerY: number) => {
+    // SVG arcs collapse when start === end point (full 360°). Use 359.9999° instead — sub-pixel gap, invisible.
+    if (endAngle - startAngle >= 360) {
+      endAngle = startAngle + 359.9999;
+    }
+
+    const startAngleRad = (startAngle * Math.PI) / 180;
+    const endAngleRad = (endAngle * Math.PI) / 180;
+
+    const x1 = centerX + innerRadius * Math.cos(startAngleRad);
+    const y1 = centerY + innerRadius * Math.sin(startAngleRad);
+    const x2 = centerX + outerRadius * Math.cos(startAngleRad);
+    const y2 = centerY + outerRadius * Math.sin(startAngleRad);
+
+    const x3 = centerX + outerRadius * Math.cos(endAngleRad);
+    const y3 = centerY + outerRadius * Math.sin(endAngleRad);
+    const x4 = centerX + innerRadius * Math.cos(endAngleRad);
+    const y4 = centerY + innerRadius * Math.sin(endAngleRad);
+
+    const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+
+    return [
+      "M", x1, y1,
+      "L", x2, y2,
+      "A", outerRadius, outerRadius, 0, largeArcFlag, 1, x3, y3,
+      "L", x4, y4,
+      "A", innerRadius, innerRadius, 0, largeArcFlag, 0, x1, y1,
+      "Z"
+    ].join(" ");
+  };
+
+  const handleMouseEnter = (slice: ChartSlice) => {
+    setHoveredSlice(slice);
+    onHover?.(slice);
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredSlice(null);
+    onHover?.(null);
+  };
+
+  const handleSliceClick = (e: React.MouseEvent, slice: ChartSlice) => {
+    e.stopPropagation();
+    onSliceClick?.(slice);
+  };
+
+  const getInnerRadius = (level: string) => {
+    switch (level) {
+      case 'section': return 0;
+      case 'subsection': return 116;
+      case 'task': return 195;
+      default: return 0;
+    }
+  };
+
+  const getTextPosition = (slice: ChartSlice, centerX: number, centerY: number) => {
+    const midAngle = (slice.startAngle + slice.endAngle) / 2;
+    const midAngleRad = (midAngle * Math.PI) / 180;
+    const innerRadius = getInnerRadius(slice.level);
+    const textRadius = (innerRadius + slice.radius) / 2;
+    
+    const x = centerX + textRadius * Math.cos(midAngleRad);
+    const y = centerY + textRadius * Math.sin(midAngleRad);
+    
+    const angle = midAngle > 90 && midAngle < 270 ? midAngle + 180 : midAngle;
+    return { x, y, angle };
+  };
+
+  const getSliceText = (slice: ChartSlice) => {
+    switch (slice.level) {
+      case 'section':
+        return slice.section.title;
+      case 'subsection':
+        return slice.subsection?.title || '';
+      case 'task':
+        return slice.task?.title || '';
+      default:
+        return '';
+    }
+  };
+
+  const shouldShowText = (slice: ChartSlice) => {
+    const angleDiff = slice.endAngle - slice.startAngle;
+    const text = getSliceText(slice);
+
+    // Text is rendered as a horizontal (unrotated) SVG label. The available horizontal space
+    // through the label position is constrained by two independent limits:
+    // 1. Ring geometry: at y = textRadius * |sin(midAngle)|, the horizontal span of the
+    //    annular band = sqrt(outerR² - y²) - sqrt(innerR² - y²)  [if y < innerR]
+    //                 = 2 * sqrt(outerR² - y²)                   [if y >= innerR]
+    // 2. Angular width: chord of the arc = 2 * textRadius * sin(angleDiff/2)
+    //    (handles narrow slices regardless of position)
+    const charWidth = slice.level === 'section' ? 9 : slice.level === 'subsection' ? 7.5 : 6.5;
+    const innerR = getInnerRadius(slice.level);
+    const outerR = slice.radius;
+    const midAngle = (slice.startAngle + slice.endAngle) / 2;
+    const textRadius = (innerR + outerR) / 2;
+    const midAngleRad = (midAngle * Math.PI) / 180;
+
+    const y = textRadius * Math.abs(Math.sin(midAngleRad));
+    const ringWidth = y < innerR
+      ? Math.sqrt(outerR * outerR - y * y) - Math.sqrt(innerR * innerR - y * y)
+      : 2 * Math.sqrt(Math.max(0, outerR * outerR - y * y));
+
+    const chordWidth = 2 * textRadius * Math.sin((angleDiff * Math.PI / 180) / 2);
+    const availableWidth = Math.min(ringWidth, chordWidth);
+
+    return availableWidth >= text.length * charWidth;
+  };
+
+  const getIsHighPriority = (slice: ChartSlice) => {
+    if (slice.level === 'section') return slice.section.high_priority || false;
+    if (slice.level === 'subsection') return slice.subsection?.high_priority || false;
+    if (slice.level === 'task') return slice.task?.high_priority || false;
+    return false;
+  };
+
+  return (
+    <div className="flex justify-center items-center w-full">
+      <svg 
+        viewBox={`0 0 ${chartSize} ${chartSize}`}
+        className="drop-shadow-soft w-full h-auto"
+        style={{ aspectRatio: '1/1', maxWidth: '624px' }}
+      >
+        <defs>
+          {chartData.map((slice, index) => (
+            <clipPath key={`clip-${index}`} id={`slice-clip-${index}`}>
+              <path
+                d={createPath(
+                  slice.startAngle,
+                  slice.endAngle,
+                  getInnerRadius(slice.level),
+                  slice.radius,
+                  centerPoint,
+                  centerPoint
+                )}
+              />
+            </clipPath>
+          ))}
+        </defs>
+        {chartData.map((slice, index) => (
+          <g key={index}>
+            <path
+              d={createPath(
+                slice.startAngle,
+                slice.endAngle,
+                getInnerRadius(slice.level),
+                slice.radius,
+                centerPoint,
+                centerPoint
+              )}
+              fill={slice.color}
+              stroke="hsl(var(--background))"
+              strokeWidth="2"
+              className="transition-all duration-300 cursor-pointer hover:brightness-110"
+              style={{
+                filter: hoveredSlice === slice ? 'brightness(1.2) drop-shadow(0 0 10px rgba(0,0,0,0.3))' : undefined,
+              }}
+              onMouseEnter={() => handleMouseEnter(slice)}
+              onMouseLeave={handleMouseLeave}
+              onClick={(e) => handleSliceClick(e, slice)}
+            />
+            {getIsHighPriority(slice) && (
+              <path
+                d={createPath(
+                  slice.startAngle,
+                  slice.endAngle,
+                  getInnerRadius(slice.level),
+                  slice.radius,
+                  centerPoint,
+                  centerPoint
+                )}
+                fill="none"
+                stroke="hsl(var(--foreground))"
+                strokeWidth="3"
+                className="pointer-events-none"
+              />
+            )}
+            {shouldShowText(slice) && (
+              <text
+                x={getTextPosition(slice, centerPoint, centerPoint).x}
+                y={getTextPosition(slice, centerPoint, centerPoint).y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                className="pointer-events-none"
+                fill="#000000"
+                clipPath={`url(#slice-clip-${index})`}
+                style={{
+                  fontSize: slice.level === 'section' ? 14 : slice.level === 'subsection' ? 12 : 10,
+                  fontWeight: 550,
+                }}
+              >
+                {getSliceText(slice)}
+              </text>
+            )}
+          </g>
+        ))}
+        {showOverdueArcs && chartData
+          .filter(slice => slice.level === 'section')
+          .map((slice, index) => {
+            const data = overdueData[slice.section.id];
+            if (!data || data.total === 0 || data.overdue === 0) return null;
+            const { total, overdue } = data;
+            const arcR = 276;
+            const fillEndAngle = slice.startAngle + (overdue / total) * (slice.endAngle - slice.startAngle);
+            const startRad = (slice.startAngle * Math.PI) / 180;
+            const endRad = (fillEndAngle * Math.PI) / 180;
+            const x1 = centerPoint + arcR * Math.cos(startRad);
+            const y1 = centerPoint + arcR * Math.sin(startRad);
+            const x2 = centerPoint + arcR * Math.cos(endRad);
+            const y2 = centerPoint + arcR * Math.sin(endRad);
+            const largeArc = (fillEndAngle - slice.startAngle) > 180 ? 1 : 0;
+            const d = `M ${x1} ${y1} A ${arcR} ${arcR} 0 ${largeArc} 1 ${x2} ${y2}`;
+            return (
+              <path
+                key={`overdue-arc-${index}`}
+                d={d}
+                fill="none"
+                stroke={slice.color}
+                strokeWidth="8"
+                strokeLinecap="round"
+                className="pointer-events-none"
+              />
+            );
+          })}
+      </svg>
+    </div>
+  );
+};
+
+export default PieChart;

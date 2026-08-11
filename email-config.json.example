@@ -1,0 +1,4 @@
+{
+  "dataFilePath": "/Users/YourName/Documents/priorityviz-data.json",
+  "_note": "SMTP and recipient email are configured inside the app (gear icon). This file only needs dataFilePath. The fields below are optional fallbacks."
+}
