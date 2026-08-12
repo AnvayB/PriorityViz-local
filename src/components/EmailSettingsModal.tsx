@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Settings, Mail, Clock, CheckCircle, Eye, EyeOff } from 'lucide-react';
+import { Mail, Clock, CheckCircle, Eye, EyeOff } from 'lucide-react';
 import { EmailSettings } from '@/types/priorities';
 
 interface EmailSettingsModalProps {
@@ -78,7 +78,7 @@ const EmailSettingsModal: React.FC<EmailSettingsModalProps> = ({ settings, onSav
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="h-9 w-9 p-0 border-gray-400 dark:border-border" title="Email settings">
-          <Settings className="h-4 w-4" />
+          <Mail className="h-4 w-4" />
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
