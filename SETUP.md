@@ -48,7 +48,7 @@ git --version
 In PowerShell, run:
 
 ```powershell
-cd "$env:USERPROFILE\Documents"
+cd "$env:USERPROFILE\Desktop" # or whichever location you prefer
 git clone https://github.com/AnvayB/PriorityViz-local.git
 cd PriorityViz-local
 ```
@@ -177,7 +177,7 @@ git --version
 In Terminal, run:
 
 ```bash
-cd ~/Documents
+cd ~/Desktop # or whichever location you prefer
 git clone https://github.com/AnvayB/PriorityViz-local.git
 cd PriorityViz-local
 ```
